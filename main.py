@@ -51,9 +51,61 @@ class Block:
 ## mine difficaulty
 ## 40 - 4 = 36
 ## hash value should smaller than DIFFICULTY
-DIFFICULTY = 0x000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+DIFFICULTY = 0x0000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 print('Mine DIFFICULTY:', DIFFICULTY)
 len("000000FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF")
+# 5000000000000000000000000000000000000000000
+# 22300745198530623141535718272648361505980415
+
+import matplotlib.pyplot as plt
+def visualization(blocks):
+    x = range(len(blocks))
+    y = [block.duration for block in blocks]
+    x_standard = range(len(blocks))
+    y_standard = [60 for i in x_standard]
+    plt.figure(figsize=(8,4)) 
+    l1=plt.plot(x,y,'r--',label='Mining')
+    l2=plt.plot(x_standard,y_standard,'g--',label='Standard')
+    plt.plot(x,y,'ro-',x_standard,y_standard,'g+-')
+    plt.xlabel("Height")
+    plt.ylabel("Time(s)")
+    plt.legend()
+    plt.title("Time Analysis")
+    
+## PID ajustment
+## U(t) = Kp*error(t) + Ki*integration(error(t)) + Kd*(error(t) - error(t-1))
+## Initialize kp = 1.5  Ki = 1 Kd = 1, more epochs to find the best coefficient
+## target = 60s
+## error(t) = 60s - real_time
+## new_Diffculty = old_Diffculty + U(t)
+## old_Difficulty = 5 means 00000 + FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+
+import math
+kp = 5000000000000000000000000000000000000000
+ki = 1000000000000000000000000000000000000
+kd = 1000000000000000000000000000000000000
+difficulties = [DIFFICULTY]
+# kp = 0.5, ki = 0.2, kd = 0.1
+# kp = 0.5, ki = 0.3, kd = 0.1
+# kp = 0.5, ki = 0.4, kd = 0.1
+
+def adjustmentDifficulty(old_Difficulty,height):
+    old_Difficulty = math.log2(old_Difficulty)
+    print("old_Difficulty:",old_Difficulty)
+    ut = kp*errors[height] + ki*errors_sum + kd*(errors[height] - errors[height-1])
+    print("ut:", ut) 
+    new_Difficulty = old_Difficulty - ut
+    print("new_Difficulty:",new_Difficulty)
+    return math.pow(2,  new_Difficulty)  
+
+def adjustmentDifficulty2(old_Difficulty,height):
+    ut = kp*errors[height] + ki*errors_sum + kd*(errors[height] - errors[height-1])
+    new_Difficulty = old_Difficulty - ut
+    print('********************************************************')
+    print('New Difficulty: ', new_Difficulty, 'Difficulty cahnge: ', ut, ' errors: ', errors[height], ' errors_sum: ', errors_sum)
+    print('********************************************************')
+    difficulties.append(new_Difficulty)
+    return new_Difficulty
 
 ## Start mining
 import random
@@ -64,25 +116,25 @@ from multiprocessing import Process, Pool, Queue, Manager
 
 epochs = 100
 blocks = []
-errors = []
+errors = [0]
 errors_sum = 0
 pre_hash = '0'
 height = 1
 max_nounce = sys.maxsize
 
 # 100 blocks
-nodes_numbers = [12,12,15,19,18,30,12,34,23,25,32,32,36,37,32,33,33,41,45,55,44,33,22,24,25,25,26,26,26,29,
-                 12,12,15,19,19,30,12,34,23,25,32,32,36,37,32,33,33,41,45,55,44,33,22,24,25,25,26,26,26,29,
-                 12,12,15,19,19,30,12,34,23,25,32,32,36,37,32,33,33,41,45,55,44,33,22,24,25,25,26,26,26,29,
-                 12,12,15,19,19,30,12,34,23,25]
+nodes_numbers = [0,5,12,12,15,7,8,9,12,15,13,15,4,6,8,10,7,16,13,2,4,3,12,16,5,11,13,16,14,14,6,7,
+                 5,12,12,15,7,8,9,12,15,13,15,4,6,8,10,7,16,13,2,4,3,12,16,5,11,13,16,14,14,6,7,
+                 5,12,12,15,7,8,9,12,15,13,15,4,6,8,10,7,16,13,2,4,3,12,16,5,11,13,16,14,14,6,7,
+                 5,12,12,15,7,8,9,12,15,13,15,4,6,8,10,7,16,13,2,4,3,12,16,5,11,13,16,14,14,6,7]
 
-def long_time_task(i, queue, start, height, pre_hash, merkle, target):
+def long_time_task(i, queue, start, height, pre_hash, merkle, DIFFICULTY):
 #     print('Run task %s (%s)...' % (i, os.getpid()))  
     start_time = datetime.now()
     while queue.empty():
 #         print("process: %s nounce: %s" % (i, start))
         block = Block(height, pre_hash, merkle, start, [])
-        if int(block.getHash(),16) < target:
+        if int(block.getHash(),16) < DIFFICULTY:
             block.printJSON()
             queue.put(start)
             break
@@ -93,18 +145,18 @@ def long_time_task(i, queue, start, height, pre_hash, merkle, target):
 #     duration = duration.total_seconds()
 #     print(duration)
     
-while height <= len(nodes_numbers):
+while height < len(nodes_numbers):
     print('Epoch %s, Parent process %s, mining...' % (height, os.getpid()))
     merkle = sha1(random.random())
     nodes_number = nodes_numbers[height]
     unit_nounce = max_nounce // nodes_number
-    p = Pool(nodes_number)
-    q = Manager().Queue()
+    p = Pool()
+    queue = Manager().Queue()
     start_time = datetime.now()
 
     for i in range(nodes_number):
         start = i * unit_nounce # nounce
-        p.apply_async(long_time_task, args = (i, q, start, height, pre_hash, merkle, DIFFICULTY))  
+        p.apply_async(long_time_task, args = (i, queue, start, height, pre_hash, merkle, DIFFICULTY))  
     p.close()
     p.join()
     
@@ -113,11 +165,18 @@ while height <= len(nodes_numbers):
     duration = duration.total_seconds()
     print('duration time: %s' % duration)
     
-    block = Block(height, pre_hash, merkle, q.get(True), [])
+    block = Block(height, pre_hash, merkle, queue.get(True), [])
     block.duration = duration
     blocks.append(block)
-    errors.append(60 - duration)
-    errors_sum += duration
+    error = 60 - duration
+    errors.append(error)
+    errors_sum += error
+    
+    print('errors', errors, "errors_sum", errors_sum)
+    DIFFICULTY = adjustmentDifficulty2(DIFFICULTY,height)
 
     height += 1
     pre_hash = block.getHash()
+
+visualization(blocks)
+print(difficulties)
